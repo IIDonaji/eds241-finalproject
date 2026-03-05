@@ -3,13 +3,14 @@ title: "draft"
 format: html
 editor: visual
 editor_options: 
-  chunk_output_type: inline
+  chunk_output_type: console
+#warning: false
+#message: false
 ---
 
+### Setup: Load libraries
 
-### Setup: Load libraries 
-
-```{r}
+```{r,results='hide'}
 library(tidyverse)
 library(here)
 library(janitor)
@@ -26,75 +27,90 @@ library(scales) # plotting
 
 ```
 
-# Study Background 
+# Study Background
 
 ## 1. Data Description
-After the code block(s) that read in and clean the data, add some notes covering:
-
-What does each row represent? What is the unit of observation?
-What are the key outcome, treatment, and control variables?
-Any notable data cleaning decisions (dropped observations, constructed variables, etc.)
-Sample size, time period, and geographic scope
 
 ```{r}
-hsr <- read_csv(here("data/xie2025_simulated_panel.csv")) %>%
+hsr_data <- read_csv(here("data", "xie2025_simulated_panel.csv")) %>%
   mutate(region = as.factor(region), 
          lat_band = as.factor(lat_band),
          city_scale = as.factor(city_scale), 
-         hsr_open_year = na_if(hsr_open_year, Inf)) # change Inf to Na
+         hsr_open_year = na_if(
+           hsr_open_year, Inf)) # Treat Inf as missing value
+
+glimpse(hsr_data)
 ```
-2. Annotated Replication
-After each subsequent code block, add some notes covering:
 
-What does the code accomplish? (summary of the procedure or model)
-What is the causal identification approach? (e.g., DiD, RDD, IV, matching)
-What assumptions must hold for the estimates to be causally valid?
-Are there any signs in the output that those assumptions are or are not satisfied?
+- Each row in this dataset represents a city–year observation.
+- The unit of analysis is a prefecture-level city observed in a specific year. 
+- The dataset covers multiple cities across several years
+- The dataset forms a panel dataset tracks changes in bird species richness over time as high-speed rail (HSR) infrastructure expands. 
+- The key outcome variable is `avian_increment_ratio_natl`, which measures the annual increase in bird species richness in a city normalized by the national increase. 
+- The main treatment variable is `hsr`, an indicator equal to 1 if high-speed rail is operating in that city-year and 0 otherwise. 
 
+During data preparation, several categorical variables (`region`, `lat_band`, and `city_scale`) were converted to factors to ensure proper handling in modeling and grouping operations.
+
+Additionally, `hsr_open_year` values equal to `Inf` were converted to NA to represent cities that never receive HSR during the study period. The simulated dataset contains observations for multiple Chinese cities over the study period used in the original analysis, providing the panel structure needed to estimate the staggered difference-in-differences model.
 
 # Staggered DID - Impact of HSR on Avian Species Richness
 
+We estimated the study’s **baseline staggered Difference-in-Differences (DiD) models** using a two-way fixed effects specification (city and year fixed effects) to replicate the logic of Table 5. Each model estimates the association between **HSR exposure (`hsr`)** and the outcome **`avian_increment_ratio_natl`** while progressively adding sets of covariates: (1) economic structure, (2) demographic size, (3) infrastructure, (4) environmental quality, and (5) meteorological conditions. 
+
+The **causal identification approach**
+- DiD with staggered treatment. 
+- Cities adopt HSR in different years, so the model must compare changes in treated cities before vs. after HSR begins operating relative to cities that are not yet treated in the same years
+- The model controls for time-invariant city characteristics (city fixed effects) and common national trends (year fixed effects). 
+
+## Key Assumptions - 
+For the DiD estimates to be causally valid, key assumptions must hold: 
+- **parallel trends** (in the absence of HSR, treated and control cities would have followed similar trends in the outcome), no major **time-varying confounders** that coincide with HSR rollout and independently affect bird richness, and no large **spillovers** that would indirectly affect “control” cities. This specific code block does not directly test those assumptions; it produces the treatment-effect estimates under each specification. However, we can look for indirect signals of credibility in later output—especially whether the estimated HSR effect is **stable in sign and magnitude across m1–m5** as controls are added. If the coefficient changes dramatically when adding key covariates, that would suggest the estimate may be sensitive to confounding; if it remains similar across specifications, that provides some reassurance (though it does not prove parallel trends on its own).
 ```{r}
 # Column 1: Economic variables
-m1 <- feols(
-  avian_increment_ratio_natl ~ hsr + gdp_growth_pct + share_primary_pct + share_secondary_pct |
-    city_id + year,
-  data = hsr, cluster = ~city_id
-)
+m1 <- feols(avian_increment_ratio_natl ~ hsr + gdp_growth_pct + share_primary_pct + share_secondary_pct | city_id + year,
+            data = hsr_data, 
+            cluster = ~city_id)
 
-# Column 2: + Demographic
-m2 <- feols(
-  avian_increment_ratio_natl ~ hsr + gdp_growth_pct + share_primary_pct + share_secondary_pct +
-    population_10k |
-    city_id + year,
-  data = hsr, cluster = ~city_id
-)
+# Column 2: Demographic factors
+m2 <- feols(avian_increment_ratio_natl ~ hsr + gdp_growth_pct +
+              share_primary_pct + share_secondary_pct +
+              population_10k | city_id + year,
+            data = hsr_data, 
+            cluster = ~city_id)
 
-# Column 3: + Infrastructure
-m3 <- feols(
-  avian_increment_ratio_natl ~ hsr + gdp_growth_pct + share_primary_pct + share_secondary_pct +
-    population_10k + urban_road_10k_m2 |
-    city_id + year,
-  data = hsr, cluster = ~city_id
-)
+# Column 3: Infrastructure variables
+m3 <- feols(avian_increment_ratio_natl ~ hsr + gdp_growth_pct +
+              share_primary_pct + share_secondary_pct +
+              population_10k + urban_road_10k_m2 |
+              city_id + year,
+            data = hsr_data, 
+            cluster = ~city_id)
 
-# Column 4: + Environmental
-m4 <- feols(
-  avian_increment_ratio_natl ~ hsr + gdp_growth_pct + share_primary_pct + share_secondary_pct +
-    population_10k + urban_road_10k_m2 + pm25 + green_coverage_pct |
-    city_id + year,
-  data = hsr, cluster = ~city_id
-)
+# Column 4: Environmental factors
+m4 <- feols(avian_increment_ratio_natl ~ hsr + gdp_growth_pct +
+              share_primary_pct + share_secondary_pct +
+              population_10k + urban_road_10k_m2 + pm25 +
+              green_coverage_pct | city_id + year,
+            data = hsr, 
+            cluster = ~city_id)
 
-# Column 5: Full controls (preferred specification)
-m5 <- feols(
-  avian_increment_ratio_natl ~ hsr + gdp_growth_pct + share_primary_pct + share_secondary_pct +
-    population_10k + urban_road_10k_m2 + pm25 + green_coverage_pct +
-    wind_speed + precip_mm + humidity_pct + temperature_c |
-    city_id + year,
-  data = hsr, cluster = ~city_id
-)
+# Column 5: Full controls (the preferred specification)
+m5 <- feols(avian_increment_ratio_natl ~ hsr + gdp_growth_pct +
+              share_primary_pct + share_secondary_pct +
+              population_10k + urban_road_10k_m2 + pm25 + 
+              green_coverage_pct + wind_speed + precip_mm +
+              humidity_pct + temperature_c | city_id + year,
+            data = hsr, 
+            cluster = ~city_id)
 ```
+
+The model  includes control variables capturing:
+- economic conditions (`gdp_growth_pct`, `share_primary_pct`, `share_secondary_pct`), 
+- demographic characteristics (`population_10k`), 
+- infrastructure development (`urban_road_10k_m2`)
+- environmental conditions (`pm25`, `green_coverage_pct`)
+- meteorological factors (`wind_speed`, `precip_mm`, `humidity_pct`, `temperature_c`). 
+
 
 
 ```{r}
@@ -107,7 +123,6 @@ etable(
   fitstat = c("n", "r2")
 )
 ```
-
 
 ```{r}
 # --- Effect size: coef / SD(outcome), as reported in paper ---
