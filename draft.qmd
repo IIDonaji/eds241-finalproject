@@ -1,7 +1,95 @@
 ---
-title: "draft"
+title: "Replicating the Ecological Impact of High-Speed Rail: A Staggered Difference‑in‑Differences Tutorial"
+author: "Ixel Medrano, Hylaea Miller, Melannie Moreno Rolon"
 format: html
-editor: visual
+date: "March 06, 2026"
 ---
 
-## 
+### Setup: Load libraries
+
+0.  Load libraries (+ install if needed)
+
+```{r}
+library(tidyverse)
+library(here)
+library(janitor)
+library(jtools)
+
+library(gtsummary)
+library(gt)
+
+library(MatchIt) # matching
+library(cobalt)  # balance + love plots
+
+library(fixest) # fast fixed effects
+library(scales) # plotting
+```
+
+### Part 1: Study Background
+
+
+```{r}
+match_data <- read_csv(here::here("data", "xie2025_simulated_panel.csv" )) %>% mutate(region=factor(region), city_scale=factor(city_scale), lat_band=factor(lat_band))
+```
+#### **2B.** Check imbalance (before matching)
+
+-   Create a covariate *balance table* comparing treated and control precincts
+-   Treatment indicator: `City-year = 1` if HSR is operating in that city that year
+0 otherwise
+`
+-   Include pre-treatment covariates: `log_home_val_07`, `p_uni_degree`, `log_median_inc`, `log_pop_denc`
+-   Use the `tbl_summary()` function from the `{gtsummary}` package.
+
+
+```{r}
+match_data %>%
+  select(
+    hsr,
+    gdp_growth_pct,
+    pm25,
+    temperature_c,
+    population_10k
+  ) %>%
+  tbl_summary(
+    by = hsr,   # treatment
+    statistic = list(
+        all_continuous() ~ "{mean} ({sd})",
+        all_categorical() ~ "{n} ({p}%)"
+  )) %>%
+  modify_header(label = "Covariate") %>% 
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**Group**")
+```
+
+```{r}
+set.seed(2412026)
+
+match_model <- matchit(
+  hsr ~ gdp_growth_pct + pm25 + temperature_c + population_10k,
+  data = match_data %>% 
+    drop_na( gdp_growth_pct, pm25, temperature_c, population_10k),
+  method = "nearest",       # Nearest neighbor matching
+  distance = "mahalanobis", # Mahalanobis distance
+  ratio = 1,                # Match one control unit to one treatment unit (1:1 matching)
+  replace = FALSE           # Control observations are not replaced
+)
+
+# Extract matched data
+matched_data <- match.data(match_model)
+
+```
+```{r}
+summary(match_model)
+```
+
+```{r}
+new_names <- data.frame(
+    old = c("log_home_val_07", "p_uni_degree", "log_median_inc", "log_pop_denc"),
+    new = c("Home Value (log)", "Percent University Degree",
+            "Median Income (log)", "Population Density (log)"))
+
+# Love plot
+love.plot(match_model, stats = "mean.diffs",
+          thresholds = c(m = 0.1),
+          var.names = new_names)
+```
+
