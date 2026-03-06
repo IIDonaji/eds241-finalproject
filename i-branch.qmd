@@ -31,7 +31,7 @@ The parallel trends assumption is untestable in a strict sense — we can never 
 
 The event study model replaces the single `hsr` indicator with a set of dummies for each year relative to HSR opening:
 
-$$\text{Avian}_{it} = \alpha_0 + \sum_{b \neq -3} \beta_b \cdot \mathbf{1}[\text{event\_time}_{it} = b] \times \text{Treated}_i + \gamma X_{it} + \mu_i + \lambda_t + \epsilon_{it}$$
+$$\text{Avian}_{it} = \alpha_0 + \sum_{b \neq -6} \beta_b \cdot \mathbf{1}[\text{event\_time}_{it} = b] \times \text{Treated}_i + \gamma X_{it} + \mu_i + \lambda_t + \epsilon_{it}$$
 
 Each $\beta_b$ captures the gap between treated and control cities $b$ years relative to HSR opening, compared to the reference year (here, 6 years before opening).
 
@@ -66,7 +66,7 @@ es_coefs <- tidy(es_model, conf.int = TRUE) %>%
   filter(str_detect(term, "event_time_binned")) %>%  # only want event-time coefficients 
   mutate(event_time = as.numeric(str_extract(term, "-?\\d+"))) # regex pattern to help extra negative value to use on x-axis  
 %>% 
-  bind_rows(tibble(event_time = -3, estimate = 0, conf.low = 0, conf.high = 0)) %>% 
+  bind_rows(tibble(event_time = -6, estimate = 0, conf.low = 0, conf.high = 0)) %>% 
   arrange(event_time)
 ```
 
@@ -108,6 +108,6 @@ es_coefs %>%
 
 ### Reading the plot
 
-- **Left of the dotted line (pre-treatment):** coefficients should hover near zero — this is the parallel trends check. Any significant pre-trend would suggest the two groups were already diverging before HSR, undermining the causal interpretation.
+- **Left of the dotted line (pre-treatment):** coefficients should hover near zero this is the parallel trends check. Any significant pre-trend would suggest the two groups were already diverging before HSR, undermining the causal interpretation.
 - **Right of the dotted line (post-treatment):** coefficients should become negative and significant, consistent with HSR reducing bird species influx.
-- **The paper's key finding:** the decline begins *two years before* HSR opens, corresponding to the construction phase. This is an important substantive result — environmental damage starts before trains run.
+- **The paper's key finding:** the decline begins *two years before* HSR opens, corresponding to the construction phase. This is an important substantive result environmental damage starts before trains run.
