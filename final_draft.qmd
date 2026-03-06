@@ -1,0 +1,193 @@
+---
+title: "Replicating the Causal Estimate of a Staggered Difference-In-Difference: Effects of High Speed Railway Opening on Urban Avian Biodiversity"
+author: "Melannie Moreno Rolón, Ixel Medrano, Hylaea Miller"
+date: last-modified
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-depth: 3
+    number-sections: false
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+# Case Study: An Introduction
+
+  China has rapidly expanded the availability high‑speed rails (HSR) over the years since 2001 (Xie & Zhu, 2025). They currently count on 225 operating HSR's connecting different cities. The construction of HSR leads to changes in land use, noise, habitat fragmentation, and increased human activity. Urban bird communities are sensitive to these changes. Due to this rapid development, cities may be experimenting loss of urban avian biodiversity in areas with HSR. Policymakers want to know: Does HSR harm biodiversity?
+
+  We cannot randomly assign cities to simply “get a high‑speed rail” or “not get one”. That is unfeasible. Due to the complexity of this analysis, researchers had to adapt econometric methods for their analysis. We should also note how cities that implement an HSR are systematically different from other cities in China. They tend to be larger, richer, and more connected. Therefore, executing a simple before and after comparison would be misleading.
+
+  For example, imagine you have two plants. One gets fertilizer at different times from the other plant. Let's say you want to compare how their growth changes relative to each other. If the treated plant suddenly grows slower after fertilizer, compared to the untreated one, the fertilizer might be the cause. This is the intuition behind a difference‑in‑difference (diff-in-diff) econometric analysis method. In this blog post, we use a staggered diff‑in‑diff because different cities received HSR at different years, just like the plants getting fertilizer at different times.
+
+# Methodology:
+
+## 1. Data description
+
+  For this analysis, we use a simulated dataset. The key outcome being analyzed is bird species richness measured as the annual increment of bird observations in each city. The data represent city‑level panel dataset, which means we use information from the same cities over time. Each row in the dataset represents a city-year observation. The dataset includes a total number of 297 cities observed from 2001 through 2019, with over 5,000 city-year observations. The dataset also includes information on when HSR begins operating in each city, coded as 1 beginning in the year HSR opens and 0 otherwise. Our key outcome variable is species richness. The study measures this as the annual increment in the number of bird species observed in each city. The study uses several control variables to account for factors that may influence bird biodiversity, such as, GDP growth, population, urban road area, PM2.5, green coverage, wind speed, precipitation, humidity, and temperature. 
+
+## 2. Identification strategy
+
+To replicate the analysis, we compare cities before and after HSR implementation. The idea is to first compare cities before and after HSR opening. Then, we also compare cities that receive HSR versus cities that haven't. This isolates the causal effect under the parallel trends assumption. This means that before HSR construction, cities that eventually receive HSR should follow similar trends in bird species richness as cities that do not receive HSR. If this assumption holds, any change in bird biodiversity after the opening of HSR can be interpreted as the causal impact of the rail system.
+
+## 3. The econometric model
+
+The model employed in the study is defined in the following equation:
+
+$$
+Y_{it} = \alpha_i + \gamma_t + \beta * HSR_i + X_i\delta + \epsilon_i
+$$
+Where:
+
+- $Y_it$ represents the outcome variable. This is the annual increase in bird species richness in city i at time t. 
+
+- $\alpha_i$ are the city fixed effects, which control for the time-invariant characteristics of each city.
+
+- $\gamma_t$ are year fixed effects, which capture the national trends affecting all cities. 
+
+- $\beta * HSR_{it}$ indicates whether a high-speed rail is operating in that city and year. 
+
+- $X_{it}\delta$ represents the control variables
+
+$\epsilon_{it}$ is the error term
+
+We are particularly interested in the $\beta$ coefficient. This parameter measures the change in the annual increment of bird species after HSR begins operating in a city relative to cities without HSR and relative to the period before an HSR was introduced.
+
+## 4. Why a staggered diff‑in‑diff?
+
+  Like our fertilizer-plant example, HSR's were not introduced in all cities at the same time. Instead, different cities received HSR service in different years as the network expanded. Because the treatment occurs at different points in time across cities, we cannot use a traditional econometrics diff-in-diff approach that assumes only a single treatment year. Instead, we use a staggered diff-in-diff approach, which allows treatment to occur at different times. In this study design, cities that have not yet received HSR act as the control group for cities that have already received it. This allows us to estimate the causal effect of HSR while accounting for differences in timing.
+
+Using this framework, we replicate the main finding reported in Table 5 of the study.
+
+# Replicate Table 5
+
+## Step 1. Setup
+
+We start off by loading all the libraries we need to carry out our replication of the causal effect analysis. 
+
+```{r,results='hide'}
+library(tidyverse)
+library(here)
+library(janitor)
+library(jtools)
+
+library(gtsummary)
+library(gt)
+
+library(MatchIt) # matching
+library(cobalt)  # balance + love plots
+
+library(fixest) # fast fixed effects
+library(scales) # plotting
+```
+
+These packages are used for loading in and wrangling the data (`here`, `janitor`, `tidyverse`, `jtools`) creating the formatted summary table (`gtsummary`, `gt`). To replicate the study and the assumption of parallel trends, we use `MatchIt`, `cobalt`, `fixest` for the city fixed effects, and `scales` for plotting.
+
+Next, we load in the simulated dataset.
+
+```{r}
+hsr_data <- read_csv(here("data", "xie2025_simulated_panel.csv")) %>%
+  mutate(region = as.factor(region),
+         lat_band = as.factor(lat_band),
+         city_scale = as.factor(city_scale),
+         hsr_open_year = na_if(hsr_open_year, Inf))
+
+glimpse(hsr_data)
+```
+
+-  We convert region, latitude band, and city scale to factors because they represent categorical groupings.
+- We also replace infinite values in the HSR opening year with NA to avoid errors in later steps.
+- The `glimpse()` output helps us confirm that the dataset has the expected structure and that the variables are correctly formatted before we begin estimating the models.
+-
+
+## Step 2.  Recreate Table 5
+
+This section replicates Table 5 from the study by estimating a series of fixed‑effects regressions that progressively add control variables. Each model uses city and year fixed effects to account for unobserved characteristics that are constant within cities or common across years. The key variable of interest is `hsr`, which indicates whether a city has an operational high‑speed rail line in a given year. By comparing the coefficient on hsr across models, we can see how sensitive the estimated effect is to the inclusion of additional controls.
+
+
+```{r}
+# Column 1: Economic controls
+m1 <- feols(
+  avian_increment_ratio_natl ~ hsr + gdp_growth_pct + share_primary_pct + share_secondary_pct | city_id + year,
+  data = hsr_data,
+  cluster = ~city_id
+  )
+
+# Column 2: Add demographic control
+m2 <- feols(
+  avian_increment_ratio_natl ~ hsr + gdp_growth_pct + share_primary_pct + share_secondary_pct +
+    population_10k | city_id + year,
+  data = hsr_data,
+  cluster = ~city_id
+)
+
+# Column 3: Add infrastructure control
+m3 <- feols(
+  avian_increment_ratio_natl ~ hsr + gdp_growth_pct + share_primary_pct + share_secondary_pct +
+    population_10k + urban_road_10k_m2 | city_id + year,
+  data = hsr_data,
+  cluster = ~city_id
+)
+
+# Column 4: Add environmental controls
+m4 <- feols(
+  avian_increment_ratio_natl ~ hsr + gdp_growth_pct + share_primary_pct + share_secondary_pct +
+    population_10k + urban_road_10k_m2 + pm25 + green_coverage_pct | city_id + year,
+  data = hsr_data,
+  cluster = ~city_id
+)
+
+# Column 5: Full model with weather controls
+m5 <- feols(
+  avian_increment_ratio_natl ~ hsr + gdp_growth_pct + share_primary_pct + share_secondary_pct +
+    population_10k + urban_road_10k_m2 + pm25 + green_coverage_pct +
+    wind_speed + precip_mm + humidity_pct + temperature_c | city_id + year,
+  data = hsr_data,
+  cluster = ~city_id
+)
+```
+
+- Model 1 includes only economic controls.
+- Models 2 to 5 add demographic, infrastructure, environmental, and weather control variables. 
+- This approach mirrors the original study’s strategy for testing robustness. 
+
+## Step 3. Results table
+
+```{r}
+etable(m1, m2, m3, m4, m5,
+       keep = "hsr",
+       headers = c("Economic", "+ Demographic", "+ Infrastructure", 
+                   "+ Environmental", "+ Weather"),
+       digits = 4,
+       fitstat = c("n", "r2"))
+```
+
+- The `etable()` function consolidates all five regression models into a single formatted table that resembles the layout of Table 5 in the original study. 
+- We restrict the output to the `hsr` coefficient because it is the main parameter of interest.
+- include the number of observations and R‑squared values to help interpret model fit. 
+- This table serves as the core replication result for the study’s main causal claim.
+- The coefficient on `hsr` remains negative across all model specifications, and are statistically significant.
+- The core finding of the original study that HSR openings are associated with declines in urban avian biodiversity is supported in the simulated dataset.
+- All five models include city and year fixed effects. 
+- The identification strategy is comparing within‑city changes in biodiversity before and after HSR openings relative to cities that haven’t yet received HSR.
+- The `hsr` coefficient stays negative and statistically significant (−0.015 to −0.016) even as we add economic, demographic, infrastructure, environmental, and weather controls.
+- Interpretation: This finding supports the idea that the parallel trends assumption is reasonable in the simulated dataset because if important omitted variables were biasing the estimates, we would see the coefficient shift more noticeably as controls are added.
+Conclusion: The results point to a negative association between HSR operation and annual avian species increment. 
+
+## Step 4. Effect Size for Column 5
+
+```{r}
+sd_outcome <- sd(hsr_data$avian_increment_ratio_natl, na.rm = TRUE)
+effect_size <- coef(m5)["hsr"] / sd_outcome
+
+cat("Effect size (col 5):", round(abs(effect_size) * 100, 1), "% of 1 SD\n")
+```
+
+- In our final step, we need to interpret the magnitude of the estimated effect.
+- To do this, we calculate how large the HSR coefficient from Model 5 is relative to the standard deviation of the outcome variable. 
+- Calculating effect size helps understand whether the estimated change in avian species increment is meaningful. 
+- The coefficient interpreted as a percentage of one standard deviation provides a more intuitive sense of scale. 
+- The standardized effect size is approximately 16.6% of one standard deviation
+- This indicates the estimated reduction in avian species increment is meaningful in practical terms. 
