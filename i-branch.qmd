@@ -1,0 +1,113 @@
+---
+title: "Parallel test"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(fixest)
+library(MatchIt)
+library(modelsummary)
+library(broom)
+library(knitr)
+library(here)
+
+# Load library 
+
+hsr_data <- read_csv(here("data", "xie2025_simulated_panel.csv")) %>%
+  mutate(region = as.factor(region), 
+         lat_band = as.factor(lat_band),
+         city_scale = as.factor(city_scale), 
+         hsr_open_year = na_if(
+           hsr_open_year, Inf)) # Treat Inf as missing value
+```
+
+## Event Study & Parallel Trends
+
+Note: A DiD is only valid if the Treatment and Control groups were moving in the same direction before the intervention hit. Let's see if we pass the parallel trends assumption.
+
+The parallel trends assumption is untestable in a strict sense — we can never observe what treated cities would have looked like without HSR. But we can check whether treated and control cities were on **similar trajectories before** treatment. If pre-treatment coefficients are close to zero and statistically insignificant, this supports the assumption.
+
+The event study model replaces the single `hsr` indicator with a set of dummies for each year relative to HSR opening:
+
+$$\text{Avian}_{it} = \alpha_0 + \sum_{b \neq -3} \beta_b \cdot \mathbf{1}[\text{event\_time}_{it} = b] \times \text{Treated}_i + \gamma X_{it} + \mu_i + \lambda_t + \epsilon_{it}$$
+
+Each $\beta_b$ captures the gap between treated and control cities $b$ years relative to HSR opening, compared to the reference year (here, 6 years before opening).
+
+```{r event-study}
+hsr_es <- hsr_data %>% 
+  mutate(event_time_binned = case_when(
+    is.na(event_time) ~ NA_real_,    # control cities stay as NA
+    event_time < -6   ~ -6,          # bin anything 6+ years before
+    event_time >  6   ~  6,          # bin anything 6+ years after
+    TRUE              ~ event_time
+  ))
+```
+
+ Run the event study regression**
+
+Instead of a single `hsr` dummy, `i(event_time_binned, ref = -6)` automatically creates one dummy per relative year. The `ref = -6` argument drops year −6 from the regression, making it our baseline that all other years are compared against.
+
+```{r event-study}
+es_model <- feols(
+  avian_increment_ratio_natl ~
+    i(event_time_binned, ref = -6) +
+    gdp_growth_pct + share_primary_pct + share_secondary_pct +
+    population_10k + urban_road_10k_m2 + pm25 + green_coverage_pct +
+    wind_speed + precip_mm + humidity_pct + temperature_c |
+    city_id + year,
+  data    = hsr_es,
+  cluster = ~city_id
+)
+
+# Extract coefficients with tidy
+es_coefs <- tidy(es_model, conf.int = TRUE) %>% 
+  filter(str_detect(term, "event_time_binned")) %>%  # only want event-time coefficients 
+  mutate(event_time = as.numeric(str_extract(term, "-?\\d+"))) # regex pattern to help extra negative value to use on x-axis  
+%>% 
+  bind_rows(tibble(event_time = -3, estimate = 0, conf.low = 0, conf.high = 0)) %>% 
+  arrange(event_time)
+```
+
+# Plot the event study
+
+Each dot is a coefficient estimate. Pre-treatment dots (left of the dotted line) should sit near zero — that is the parallel trends check. Post-treatment dots should turn negative, showing HSR's impact on bird species influx.
+
+```{r event-study}
+es_coefs %>% 
+  ggplot(aes(x = event_time, y = estimate)) +
+  annotate("rect", xmin = -5.5, xmax = -0.5,
+           ymin = -Inf, ymax = Inf, alpha = 0.04, fill = "steelblue") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_vline(xintercept = -0.5, linetype = "dotted",
+             color = "steelblue", linewidth = 0.7) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high),
+              alpha = 0.2, fill = "steelblue") +
+  geom_line(color = "steelblue", linewidth = 0.8) +
+  geom_point(color = "steelblue", size = 2.5) +
+  annotate("text", x = -3, y = max(es_coefs$conf.high) * 0.15,
+           label = "ref", size = 3, color = "grey40") +
+  annotate("text", x = 0.2, y = max(es_coefs$conf.high) * 0.85,
+           label = "HSR opens →", hjust = 0, size = 3.5, color = "steelblue") +
+  scale_x_continuous(breaks = -5:5) +
+  labs(
+    title    = "Event Study: Effect of HSR on Bird Species Increment",
+    subtitle = "Pre-treatment coefficients near zero support the parallel trends assumption",
+    x        = "Years Relative to HSR Opening",
+    y        = "Avian Increment Ratio (National)",
+    caption  = "Two-way FE (city + year), full controls, SEs clustered at city level."
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title       = element_text(face = "bold"),
+    plot.subtitle    = element_text(color = "grey40", size = 10),
+    panel.grid.minor = element_blank()
+  )
+```
+
+### Reading the plot
+
+- **Left of the dotted line (pre-treatment):** coefficients should hover near zero — this is the parallel trends check. Any significant pre-trend would suggest the two groups were already diverging before HSR, undermining the causal interpretation.
+- **Right of the dotted line (post-treatment):** coefficients should become negative and significant, consistent with HSR reducing bird species influx.
+- **The paper's key finding:** the decline begins *two years before* HSR opens, corresponding to the construction phase. This is an important substantive result — environmental damage starts before trains run.
