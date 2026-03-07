@@ -192,7 +192,7 @@ cat("Effect size (col 5):", round(abs(effect_size) * 100, 1), "% of 1 SD\n")
 - The standardized effect size is approximately 16.6% of one standard deviation
 - This indicates the estimated reduction in avian species increment is meaningful in practical terms. 
 
-## Step 5: Event Study & Parallel Trends a two-way fix effect model
+## Step 5: Event Study & Parallel Trends
 
 Note: A DiD is only valid if the Treatment and Control groups were moving in the same direction before the intervention hit. Let's see if we pass the parallel trends assumption.
 
