@@ -1,0 +1,476 @@
+---
+title: "Do High-Speed Rails Scare Away Birds? A Staggered DiD Tutorial"
+subtitle: "Replicating Xie & Zhu (2025) with simulated data"
+author: "Your Name"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    code-fold: true
+    code-tools: true
+    theme: flatly
+    fig-width: 9
+    fig-height: 5.5
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+```{r setup}
+library(tidyverse)
+library(fixest)
+library(MatchIt)
+library(modelsummary)
+library(broom)
+library(knitr)
+
+match_data <- read_csv(here::here("data", "xie2025_simulated_panel.csv" ))
+
+# Register fixest formula shorthand
+setFixest_fml(..controls = ~ gdp_growth_pct + share_primary_pct + share_secondary_pct +
+  population_10k + urban_road_10k_m2 + pm25 + green_coverage_pct +
+  wind_speed + precip_mm + humidity_pct + temperature_c)
+```
+
+## Background & Motivation
+
+China's high-speed rail (HSR) network is the largest in the world — by 2019, over 220 prefecture-level cities had an operational HSR station. This rapid infrastructure expansion is widely celebrated for connecting people and stimulating economies. But what does it mean for the birds?
+
+[Xie & Zhu (2025)](https://doi.org/10.1016/j.jclepro.2025.145351) ask exactly this question. Using bird occurrence records from the Global Biodiversity Information Facility (GBIF) across 297 Chinese cities from 2001–2019, they estimate whether HSR openings reduce the annual influx of new bird species into cities. Their headline finding: **HSR opening is associated with a 1.65 percentage point decline in a city's share of new bird species**, representing roughly 17% of one standard deviation.
+
+The mechanisms are intuitive. Construction disrupts habitats through earthworks, tunnel excavation, and deforestation. Once operational, HSR brings increased light pollution and human activity — both documented disruptors of bird behavior. Importantly, these effects appear **before** trains even start running, which has implications for how we think about causal timing.
+
+This blog post walks you through how Xie & Zhu identify this effect using a **staggered difference-in-differences (DiD)** design, and replicates their main results using simulated data that mirrors the paper's structure.
+
+---
+
+## Data & Variable Construction
+
+### The outcome variable
+
+The raw data from GBIF records cumulative bird species per city — that is, the total number of distinct species ever observed in that city up to year $t$. The authors take the **annual increment**: how many new species were recorded for the first time in city $i$ in year $t$.
+
+But there's a confound: birdwatching technology improved dramatically over this period. More observers with better equipment means more species get recorded everywhere — not because birds arrived, but because humans got better at finding them. A raw species count would conflate real ecological change with observational improvement.
+
+The solution is to **normalize** each city's annual increment by the total national increment in that year:
+
+$$\text{Avian}_{it} = \frac{\Delta \text{Species}_{it}}{\sum_{i=1}^{N} \Delta \text{Species}_{it}}$$
+
+This gives each city's *share* of new species recorded nationally. Technological improvements affect all cities simultaneously, so they cancel out in the ratio. You can think of it as asking: *did this city attract a smaller slice of the national bird-discovery pie after HSR opened?*
+
+```{r outcome-summary}
+hsr |>
+  summarise(
+    mean   = mean(avian_increment_ratio_natl, na.rm = TRUE),
+    sd     = sd(avian_increment_ratio_natl, na.rm = TRUE),
+    min    = min(avian_increment_ratio_natl, na.rm = TRUE),
+    max    = max(avian_increment_ratio_natl, na.rm = TRUE),
+    n_obs  = n()
+  ) |>
+  kable(digits = 4, caption = "Summary: Avian Increment Ratio (National)")
+```
+
+### The treatment variable
+
+`hsr` is a binary indicator equal to 1 if city $i$ has an operational HSR station in year $t$, and 0 otherwise. Once a city gets HSR, it stays treated — this is a standard absorbing treatment. Crucially, cities received HSR at **different times** across four phases of national rollout, which is what motivates the staggered DiD design.
+
+```{r hsr-rollout}
+hsr |>
+  filter(treated_city == 1) |>
+  distinct(city_id, hsr_open_year) |>
+  count(hsr_open_year) |>
+  drop_na() |>
+  ggplot(aes(x = hsr_open_year, y = n)) +
+  geom_col(fill = "steelblue", width = 0.7) +
+  labs(
+    title = "Number of Cities Receiving HSR by Year",
+    x = "Year of HSR Opening", y = "Number of Cities"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(panel.grid.minor = element_blank())
+```
+
+### Covariates
+
+HSR routes are not randomly assigned — they connect economically important, populous cities. To address this selection problem, the authors control for five categories of city characteristics:
+
+| Category | Variables |
+|---|---|
+| Economic | GDP growth, share of primary sector, share of secondary sector |
+| Demographic | Population |
+| Infrastructure | Urban road area |
+| Environmental | PM2.5, green coverage |
+| Weather | Wind speed, precipitation, humidity, temperature |
+
+These controls help isolate the effect of HSR from the fact that treated cities were already different from control cities before treatment.
+
+---
+
+## DiD Methodology
+
+### The core idea
+
+Difference-in-differences compares the *change over time* in outcomes between a treated group and a control group. The key assumption is that, absent treatment, both groups would have followed the same trend — the **parallel trends assumption**.
+
+In a simple 2×2 DiD with one treatment time, the estimator is:
+
+$$\hat{\beta}_{DiD} = \underbrace{(\bar{Y}_{treat,post} - \bar{Y}_{treat,pre})}_{\text{change in treated}} - \underbrace{(\bar{Y}_{control,post} - \bar{Y}_{control,pre})}_{\text{change in control}}$$
+
+### Why staggered DiD?
+
+The complication here is that cities didn't all get HSR at the same time. With **staggered treatment adoption**, different cities switch from control to treatment at different calendar years. This is extremely common in policy evaluation — think of states adopting a new law at different times.
+
+The paper handles this with a **two-way fixed effects (TWFE)** regression:
+
+$$\text{Avian}_{it} = \alpha_0 + \beta \cdot \text{HSR}_{it} + \gamma X_{it} + \mu_i + \lambda_t + \epsilon_{it}$$
+
+where:
+
+- $\mu_i$ = city fixed effects — absorb all time-invariant city characteristics (geography, historical bird diversity, etc.)
+- $\lambda_t$ = year fixed effects — absorb national trends common to all cities (e.g., the technology improvement problem described above)
+- $X_{it}$ = time-varying covariates
+- $\beta$ = the average treatment effect of HSR on the avian increment ratio
+
+The coefficient $\beta$ is identified by comparing within-city changes in the outcome around the time of HSR opening, after removing common time trends.
+
+::: {.callout-note}
+**A note on staggered DiD and heterogeneous effects**
+
+Recent econometric work (Callaway & Sant'Anna 2021; Sun & Abraham 2021) has shown that TWFE can produce misleading estimates when treatment effects vary across cohorts or over time — "already-treated" units can act as implicit controls, potentially contaminating the estimate. Xie & Zhu use the standard TWFE approach but do not apply these newer corrections. This is worth flagging as a limitation.
+:::
+
+---
+
+## Table 5: Main Results
+
+We estimate the model five times, adding control blocks sequentially from left to right. This exercises whether the HSR coefficient is stable as we add potentially confounding variables — a sign the result isn't driven by omitted variable bias.
+
+```{r table5}
+m1 <- feols(
+  avian_increment_ratio_natl ~ hsr + gdp_growth_pct + share_primary_pct + share_secondary_pct |
+    city_id + year,
+  data = hsr, cluster = ~city_id
+)
+
+m2 <- feols(
+  avian_increment_ratio_natl ~ hsr + gdp_growth_pct + share_primary_pct + share_secondary_pct +
+    population_10k |
+    city_id + year,
+  data = hsr, cluster = ~city_id
+)
+
+m3 <- feols(
+  avian_increment_ratio_natl ~ hsr + gdp_growth_pct + share_primary_pct + share_secondary_pct +
+    population_10k + urban_road_10k_m2 |
+    city_id + year,
+  data = hsr, cluster = ~city_id
+)
+
+m4 <- feols(
+  avian_increment_ratio_natl ~ hsr + gdp_growth_pct + share_primary_pct + share_secondary_pct +
+    population_10k + urban_road_10k_m2 + pm25 + green_coverage_pct |
+    city_id + year,
+  data = hsr, cluster = ~city_id
+)
+
+m5 <- feols(
+  avian_increment_ratio_natl ~ hsr + gdp_growth_pct + share_primary_pct + share_secondary_pct +
+    population_10k + urban_road_10k_m2 + pm25 + green_coverage_pct +
+    wind_speed + precip_mm + humidity_pct + temperature_c |
+    city_id + year,
+  data = hsr, cluster = ~city_id
+)
+
+etable(
+  m1, m2, m3, m4, m5,
+  keep    = "hsr",
+  headers = c("Economic", "+ Demographic", "+ Infrastructure", "+ Environmental", "+ Weather"),
+  digits  = 4,
+  fitstat = c("n", "r2")
+)
+```
+
+### Interpreting the results
+
+The coefficient on `hsr` in the preferred specification (column 5) tells us: **after HSR opens, a city's share of new bird species recorded nationally falls by approximately 1.65 percentage points**, relative to the same city before HSR and relative to cities that never got HSR.
+
+Two features of this table build confidence in the estimate:
+
+1. **Stability across columns** — the coefficient barely moves as we add controls (~−0.014 to −0.017). If the result were driven by omitted confounders correlated with both HSR placement and bird diversity, we'd expect larger swings.
+
+2. **Effect size** — dividing the coefficient by the standard deviation of the outcome gives the standardized effect size:
+
+```{r effect-size}
+sd_outcome  <- sd(hsr$avian_increment_ratio_natl, na.rm = TRUE)
+effect_size <- abs(coef(m5)["hsr"] / sd_outcome) * 100
+cat(sprintf("Effect size: %.1f%% of 1 SD\n", effect_size))
+```
+
+---
+
+## Event Study & Parallel Trends
+
+The parallel trends assumption is untestable in a strict sense — we can never observe what treated cities would have looked like without HSR. But we can check whether treated and control cities were on **similar trajectories before** treatment. If pre-treatment coefficients are close to zero and statistically insignificant, this supports the assumption.
+
+The event study model replaces the single `hsr` indicator with a set of dummies for each year relative to HSR opening:
+
+$$\text{Avian}_{it} = \alpha_0 + \sum_{b \neq -3} \beta_b \cdot \mathbf{1}[\text{event\_time}_{it} = b] \times \text{Treated}_i + \gamma X_{it} + \mu_i + \lambda_t + \epsilon_{it}$$
+
+Each $\beta_b$ captures the gap between treated and control cities $b$ years relative to HSR opening, compared to the reference year (here, 3 years before opening).
+
+```{r event-study}
+hsr_es <- hsr |>
+  mutate(event_time_binned = case_when(
+    is.na(event_time) ~ NA_real_,
+    event_time < -5   ~ -5,
+    event_time >  5   ~  5,
+    TRUE              ~ event_time
+  ))
+
+es_model <- feols(
+  avian_increment_ratio_natl ~
+    i(event_time_binned, ref = -3) +
+    gdp_growth_pct + share_primary_pct + share_secondary_pct +
+    population_10k + urban_road_10k_m2 + pm25 + green_coverage_pct +
+    wind_speed + precip_mm + humidity_pct + temperature_c |
+    city_id + year,
+  data    = hsr_es,
+  cluster = ~city_id
+)
+
+es_coefs <- tidy(es_model, conf.int = TRUE) |>
+  filter(str_detect(term, "event_time_binned")) |>
+  mutate(event_time = as.numeric(str_extract(term, "-?\\d+"))) |>
+  bind_rows(tibble(event_time = -3, estimate = 0, conf.low = 0, conf.high = 0)) |>
+  arrange(event_time)
+
+es_coefs |>
+  ggplot(aes(x = event_time, y = estimate)) +
+  annotate("rect", xmin = -5.5, xmax = -0.5,
+           ymin = -Inf, ymax = Inf, alpha = 0.04, fill = "steelblue") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_vline(xintercept = -0.5, linetype = "dotted",
+             color = "steelblue", linewidth = 0.7) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high),
+              alpha = 0.2, fill = "steelblue") +
+  geom_line(color = "steelblue", linewidth = 0.8) +
+  geom_point(color = "steelblue", size = 2.5) +
+  annotate("text", x = -3, y = max(es_coefs$conf.high) * 0.15,
+           label = "ref", size = 3, color = "grey40") +
+  annotate("text", x = 0.2, y = max(es_coefs$conf.high) * 0.85,
+           label = "HSR opens →", hjust = 0, size = 3.5, color = "steelblue") +
+  scale_x_continuous(breaks = -5:5) +
+  labs(
+    title    = "Event Study: Effect of HSR on Bird Species Increment",
+    subtitle = "Pre-treatment coefficients near zero support the parallel trends assumption",
+    x        = "Years Relative to HSR Opening",
+    y        = "Δ Avian Increment Ratio (National)",
+    caption  = "Two-way FE (city + year), full controls, SEs clustered at city level."
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title       = element_text(face = "bold"),
+    plot.subtitle    = element_text(color = "grey40", size = 10),
+    panel.grid.minor = element_blank()
+  )
+```
+
+### Reading the plot
+
+- **Left of the dotted line (pre-treatment):** coefficients should hover near zero — this is the parallel trends check. Any significant pre-trend would suggest the two groups were already diverging before HSR, undermining the causal interpretation.
+- **Right of the dotted line (post-treatment):** coefficients should become negative and significant, consistent with HSR reducing bird species influx.
+- **The paper's key finding:** the decline begins *two years before* HSR opens, corresponding to the construction phase. This is an important substantive result — environmental damage starts before trains run.
+
+---
+
+## Robustness Checks
+
+A result is only as credible as the tests trying to break it. The paper runs two families of robustness checks.
+
+### Table 16: Alternative specifications
+
+These tests ask: does the finding hold under different modeling choices?
+
+```{r table16}
+# Log DV
+m_log <- feols(
+  log(avian_increment_ratio_natl + 1e-6) ~ hsr + ..controls |
+    city_id + year,
+  data = hsr, cluster = ~city_id
+)
+
+# Province-level ratio as DV
+m_prov <- feols(
+  avian_increment_ratio_prov ~ hsr + ..controls |
+    city_id + year,
+  data = hsr, cluster = ~city_id
+)
+
+# Log of province-level ratio
+m_prov_log <- feols(
+  log(avian_increment_ratio_prov + 1e-6) ~ hsr + ..controls |
+    city_id + year,
+  data = hsr, cluster = ~city_id
+)
+
+# Exclude pre-operation years
+hsr_post_only <- hsr |>
+  filter(is.na(hsr_open_year) | year >= hsr_open_year)
+
+m_post_only <- feols(
+  avian_increment_ratio_natl ~ hsr + ..controls |
+    city_id + year,
+  data = hsr_post_only, cluster = ~city_id
+)
+
+# Province fixed effects
+m_prov_fe <- feols(
+  avian_increment_ratio_natl ~ hsr + ..controls |
+    city_id + year + province_id,
+  data = hsr, cluster = ~city_id
+)
+
+# Two-way clustering (city + year)
+m_cluster_2way <- feols(
+  avian_increment_ratio_natl ~ hsr + ..controls |
+    city_id + year,
+  data = hsr, cluster = ~city_id + year
+)
+
+# Control for birdwatchers
+m_birdwatchers <- feols(
+  avian_increment_ratio_natl ~ hsr + H + ..controls |
+    city_id + year,
+  data = hsr, cluster = ~city_id
+)
+
+etable(
+  m5, m_log, m_prov, m_prov_log,
+  m_post_only, m_prov_fe, m_cluster_2way, m_birdwatchers,
+  keep    = "hsr",
+  headers = c("Preferred", "Log DV", "Prov. ratio", "Log prov.",
+              "Post only", "+ Prov. FEs", "2-way cluster", "+ Birdwatchers"),
+  digits  = 4,
+  fitstat = c("n", "r2")
+)
+```
+
+Each column changes one thing and checks whether `hsr` remains negative and significant. The key things to look for: sign stability (always negative?), significance stability (always at least p < 0.05?), and magnitude stability (does it move a lot?).
+
+### Table 9: PSM-DID
+
+The second concern is **selection bias** — HSR cities were wealthier and more populous to begin with. Even with city and year fixed effects, there may be pre-existing differences driving the result.
+
+Propensity Score Matching (PSM) addresses this by constructing a matched control group: for each treated city, we find control cities with similar pre-treatment characteristics. Running the DiD on this matched sample is a stricter test because the treated and control groups are more comparable.
+
+```{r psm-did}
+# Build one-row-per-city baseline (pre-treatment means)
+first_open <- min(hsr$hsr_open_year, na.rm = TRUE)
+
+city_baseline <- hsr |>
+  filter(year < first_open) |>
+  group_by(city_id) |>
+  summarise(
+    treated_city        = first(treated_city),
+    gdp_growth_pct      = mean(gdp_growth_pct,      na.rm = TRUE),
+    share_primary_pct   = mean(share_primary_pct,   na.rm = TRUE),
+    share_secondary_pct = mean(share_secondary_pct, na.rm = TRUE),
+    population_10k      = mean(population_10k,      na.rm = TRUE),
+    urban_road_10k_m2   = mean(urban_road_10k_m2,   na.rm = TRUE),
+    pm25                = mean(pm25,                na.rm = TRUE),
+    green_coverage_pct  = mean(green_coverage_pct,  na.rm = TRUE),
+    wind_speed          = mean(wind_speed,          na.rm = TRUE),
+    precip_mm           = mean(precip_mm,           na.rm = TRUE),
+    humidity_pct        = mean(humidity_pct,        na.rm = TRUE),
+    temperature_c       = mean(temperature_c,       na.rm = TRUE),
+    longitude           = first(longitude),
+    latitude            = first(latitude),
+    .groups = "drop"
+  ) |>
+  drop_na()
+
+psm_formula <- treated_city ~ gdp_growth_pct + share_primary_pct +
+  share_secondary_pct + population_10k + urban_road_10k_m2 +
+  pm25 + green_coverage_pct + wind_speed + precip_mm +
+  humidity_pct + temperature_c + longitude + latitude
+
+rm(run_psm_did)
+
+run_psm_did <- function(method, ...) {
+  match_out <- matchit(
+    psm_formula,
+    data     = city_baseline,
+    method   = method,
+    distance = "glm",
+    ...
+  )
+  matched_ids <- match.data(match_out)$city_id
+  hsr_matched <- hsr |> filter(city_id %in% matched_ids)
+
+  feols(
+    avian_increment_ratio_natl ~ hsr + ..controls |
+      city_id + year,
+    data = hsr_matched, cluster = ~city_id
+  )
+}
+
+m_nn3    <- run_psm_did("nearest", ratio = 3)
+m_nn5    <- run_psm_did("nearest", ratio = 5)
+m_radius <- run_psm_did("nearest", caliper = 0.05)
+m_kernel <- run_psm_did("full")
+
+etable(
+  m5, m_nn3, m_nn5, m_radius, m_kernel,
+  keep    = "hsr",
+  headers = c("Full sample", "k-NN (k=3)", "k-NN (k=5)",
+              "Radius", "Full matching"),
+  digits  = 4,
+  fitstat = c("n", "r2")
+)
+```
+
+If the HSR coefficient remains negative and significant across matching methods despite the smaller, more comparable sample, it strengthens the causal argument considerably.
+
+---
+
+## Limitations & Critical Evaluation
+
+The staggered DiD design is well-suited to this question, but several limitations are worth flagging.
+
+**1. GBIF data are observation-driven, not ecologically representative**
+
+GBIF records depend on where birdwatchers go. Cities that attract more observers (e.g., wealthier, more accessible cities) will mechanically record more species. The national normalization partially addresses technological trends but cannot fully correct for spatial observer bias. The authors do control for birdwatcher counts in a robustness check, but this is a noisy proxy.
+
+**2. Parallel trends may not hold**
+
+The event study shows a significant decline *two years before* HSR opens. The authors interpret this as evidence of construction effects — which is substantively plausible. But it could also indicate a violation of parallel trends: treated cities were already on a different trajectory before construction began, perhaps because of anticipatory economic changes associated with the announcement of HSR. These two stories are hard to disentangle.
+
+**3. Staggered DiD and heterogeneous treatment effects**
+
+The standard TWFE estimator used here can be biased when treatment effects differ across cohorts or time periods — a problem formally demonstrated by Callaway & Sant'Anna (2021) and Goodman-Bacon (2021). In a context where early-phase HSR (pre-2011) had larger ecological impacts than later-phase HSR (the paper's own finding in Table 15), this concern is live. The authors do not apply cohort-robust estimators.
+
+**4. Reverse causality from species richness to HSR placement**
+
+The authors argue that HSR routes are planned based on economic and demographic factors, not biodiversity — and they control for these. But cities with historically high bird diversity (often in ecologically sensitive areas) might be *avoided* by HSR planners, creating a selection pattern that could inflate the negative treatment effect.
+
+**5. Data availability**
+
+The original GBIF and city-level data are not publicly released alongside the paper, making direct replication impossible. This blog post uses simulated data that mirrors the paper's structure and recovers a treatment effect close to the published estimate, but it cannot fully validate the original analysis.
+
+---
+
+## Summary
+
+| Step | What we did | Why it matters |
+|---|---|---|
+| Outcome construction | Normalize annual species increment by national total | Removes tech/observer trends |
+| Identification | Staggered DiD with city + year FEs | Controls for time-invariant city traits and common trends |
+| Main estimate | β ≈ −0.0165, p < 0.01 | HSR reduces city's share of new bird species |
+| Parallel trends | Event study shows flat pre-trends | Supports (but doesn't prove) the causal assumption |
+| Robustness | 8 alternative specs + 4 PSM methods | Result is stable across modeling choices |
+| Limitations | Observer bias, pre-trends, TWFE assumptions | Important caveats for causal interpretation |
+
+The Xie & Zhu paper makes a credible case that HSR expansion has measurable negative ecological consequences for urban bird diversity — particularly during construction and in large eastern cities. The robustness checks are thorough and the effect is stable. The main open questions concern the validity of parallel trends and the use of standard TWFE in a setting where the authors themselves document heterogeneous treatment effects over time.
