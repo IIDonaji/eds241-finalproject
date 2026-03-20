@@ -305,7 +305,7 @@ es_coefs %>%
   annotate("text", x = -6, y = max(es_coefs$conf.high) * 0.15,
            label = "ref", size = 3, color = "grey40") +
   annotate("text", x = 0.2, y = max(es_coefs$conf.high) * 0.85,
-           label = "HSR opens ->", hjust = 0, size = 3.5, color = "steelblue") +
+           label = "⬅ HSR opens at zero"", hjust = 0, size = 3.5, color = "steelblue") +
   scale_x_continuous(breaks = -5:5) +
   labs(
     title    = "Event Study: Effect of HSR on Bird Species Increment",
@@ -324,29 +324,15 @@ es_coefs %>%
 
 ### Reading the plot
 
-**The core question the plot is answering:** Were treated cities and control cities already moving differently before HSR opened?
-If yes, any post-treatment difference could just be a continuation of that pre-existing gap rather than HSR causing it.
+**The core question the plot is answering:** Were treated cities and control cities already moving differently before HSR opened? If yes, any post-treatment difference could just be a continuation of that pre-existing gap rather than HSR causing it.
 
 -   **The reference point:** Year -6 anchored at 0
 
--   **The pre-treatment period (left side of the plot):** Most estimates are close to zero.
-    The line hovers near zero from -5 through -2 before dropping at -1.
-    The confidence intervals are very wide and clearly cross zero through this window, meaning non of the pre-treatment dips are statistically distinguishable from zero.
-    **Note:** The dip at -3 looks alarming visually but the ribbon around it is huge-you cannot confidently say it is different from zero.
-    Random variation in simulated data will produce bumps and dips like this even when there is no real pre-trend.
-    **Year -1:** One year before opening; the estimate drops noticeably and confidence interval start to tighten.
-    This is consistent with the paper's find that HSR construction, which typically begins 1-2 years before a line opens, already starts affecting bird species influx.
-    Earthworks, tunnel excavation, and habitat disruption begin before the first train runs.
+-   **The pre-treatment period (left side of the plot):** Most estimates are close to zero. The line hovers near zero from -5 through -2 before dropping at -1. The confidence intervals are very wide and clearly cross zero through this window, meaning non of the pre-treatment dips are statistically distinguishable from zero. **Note:** The dip at -3 looks alarming visually but the ribbon around it is huge-you cannot confidently say it is different from zero. Random variation in simulated data will produce bumps and dips like this even when there is no real pre-trend. **Year -1:** One year before opening; the estimate drops noticeably and confidence interval start to tighten. This is consistent with the paper's find that HSR construction, which typically begins 1-2 years before a line opens, already starts affecting bird species influx. Earthworks, tunnel excavation, and habitat disruption begin before the first train runs.
 
--   **Post-treatment period(right side of the plot):** The negative effect persists across all post-treatment years, which tells you the impact is not just a short-term shock-cities with HSR continue to attract a smaller share of new bird species compared to cities withiout HSR.
-    The wide confidence intervals in later years (+3 to +5) reflect fewer cities have been treated long enough to contribute observations that far out, so estimates become noisier.
+-   **Post-treatment period(right side of the plot):** The negative effect persists across all post-treatment years, which tells you the impact is not just a short-term shock-cities with HSR continue to attract a smaller share of new bird species compared to cities withiout HSR. The wide confidence intervals in later years (+3 to +5) reflect fewer cities have been treated long enough to contribute observations that far out, so estimates become noisier.
 
--   **The paper's key finding:** the decline begins *two years before* HSR opens, corresponding to the construction phase.
-    This is an important substantive result environmental damage starts before trains run.
-    **Important note:** Our plot does not show the clean flat pre-trend reported in the paper.
-    Instead, we observe a dip at -3 and the decline begins at -1 rather than -2 as shown in the paper.
-    These differences are likely artifacts of the simulated data rather than evidence of a true pre-trend violation, since the confidence intervals are wide throughout the pre-treatment period.
-    Simulated data will not perfectly replicate the exact pre-trend shape in the original paper, but the key takeaway is that the pre-treatment estimates remain statistically insignificant in our plot.
+-   **The paper's key finding:** the decline begins *two years before* HSR opens, corresponding to the construction phase. This is an important substantive result environmental damage starts before trains run. **Important note:** Our plot does not show the clean flat pre-trend reported in the paper.Instead, we observe a dip at -3 and the decline begins at -1 rather than -2 as shown in the paper. These differences are likely artifacts of the simulated data rather than evidence of a true pre-trend violation, since the confidence intervals are wide throughout the pre-treatment period. We can confirm this formally, none of the pre-treatment coefficients are statistically distinguishable from zero (all p-values > 0.05), meaning the wide confidence intervals throughout the pre-treatment window all cross zero. A true parallel trends violation would require a pre-treatment estimate that is both large in magnitude and statistically significant. Neither condition holds here. Simulated data will not perfectly replicate the exact pre-trend shape in the original paper, but the key takeaway is that the pre-treatment estimates remain statistically insignificant in our plot.
 
 ## **Critical Evaluation**
 
