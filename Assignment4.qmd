@@ -20,44 +20,29 @@ editor:
 
 ![](images/clipboard-2926884012.png)
 
-# Case Study:Introduction
+# Case Study: Introduction
 
-China has rapidly expanded the availability of high‑speed rails (HSR) over the years since 2001 (Xie & Zhu, 2025).
-They currently count on 225 operating HSR's connecting different cities.
-The construction of HSR leads to changes in land use, noise, habitat fragmentation, and increased human activity.
-Urban bird communities are sensitive to these changes.
-Due to this rapid development, cities may be experimenting loss of urban avian biodiversity in areas with HSR.
-Policymakers want to know: Does HSR harm biodiversity?
+China has rapidly expanded its high-speed rail (HSR) network since the early 2000s, growing into one of the largest systems in the world (Xie & Zhu, 2025). Today, more than 200 HSR lines connect cities across the country, reshaping patterns of mobility, economic activity, and urban development.
 
-We cannot randomly assign cities to simply “get a high‑speed rail” or “not get one”.
-That is unfeasible.
-Due to the complexity of this analysis, researchers had to adapt econometric methods for their analysis.
-We should also note how cities that implement an HSR are systematically different from other cities in China.
-They tend to be larger, richer, and more connected.
-Therefore, executing a simple before and after comparison would be misleading.
+While this expansion has brought clear economic and transportation benefits, it also raises important environmental questions. The construction and operation of HSR can alter land use, increase noise levels, fragment habitats, and intensify human activity. These factors are known to affect urban ecosystems. Specifically, bird communities are highly sensitive to these changes, making them a useful indicator of biodiversity impacts. As a result, researchers and policymakers are asking: does high-speed rail development come at a cost to urban biodiversity?
 
-For example, imagine you have two plants.
-One gets fertilizer at different times from the other plant.
-Let's say you want to compare how their growth changes relative to each other.
-If the treated plant suddenly grows slower after fertilizer, compared to the untreated one, the fertilizer might be the cause.
-This is the intuition behind a difference‑in‑difference (diff-in-diff) econometric analysis method.
-In this blog post, we use a staggered diff‑in‑diff because different cities received HSR at different years, just like the plants getting fertilizer at different times.
+Answering this question is not straightforward. Cities cannot be randomly assigned to receive HSR infrastructure, and those that do are often systematically different. They tend to be larger, wealthier, and more economically connected. This means that simple comparisons between cities with and without HSR, or before-and-after analyses, can produce misleading conclusions.
+
+To address this challenge, researchers rely on econometric methods designed for real-world settings where controlled experiments are not possible. One such approach is the difference-in-differences (DiD) framework, which compares changes over time between treated and untreated groups. In this study, we use a staggered DiD design, taking advantage of the fact that different cities adopted HSR in different years. This allows us to better isolate the impact of HSR expansion on urban bird biodiversity.
 
 # Methodology:
 
-## 1. Data description
+## 1. Data Description
 
-For this analysis, we use a simulated dataset.
-The key outcome being analyzed is bird species richness measured as the annual increment of bird observations in each city.
-The data represent city‑level panel dataset, which means we use information from the same cities over time.
-Each row in the dataset represents a city-year observation.
-The dataset includes a total number of 297 cities observed from 2001 through 2019, with over 5,000 city-year observations.
-The dataset also includes information on when HSR begins operating in each city, coded as 1 beginning in the year HSR opens and 0 otherwise.
-Our key outcome variable is species richness.
-The study measures this as the annual increment in the number of bird species observed in each city.
-The study uses several control variables to account for factors that may influence bird biodiversity, such as, GDP growth, population, urban road area, PM2.5, green coverage, wind speed, precipitation, humidity, and temperature.
+For this analysis, we use a simulated city-level panel dataset that tracks changes in bird biodiversity across time. Panel data allow us to follow the same cities over multiple years, making it possible to observe how outcomes evolve before and after the introduction of high-speed rail (HSR). Each observation in the dataset represents a city-year combination.
 
-## 2. Identification strategy
+The dataset includes 297 cities observed annually from 2001 through 2019, resulting in more than 5,000 city-year observations. A key feature of the dataset is the timing of HSR implementation: for each city, a binary indicator is coded as 1 starting in the year HSR begins operating and 0 otherwise. Because different cities adopt HSR in different years, the dataset is well-suited for a staggered difference-in-differences analysis.
+
+Our primary outcome variable is bird species richness, measured as the annual increment in the number of bird species observed in each city. This metric captures changes in biodiversity over time rather than static levels, allowing us to focus on how species accumulation responds to HSR development.
+
+To isolate the effect of HSR, the dataset also includes several control variables that account for other factors influencing urban biodiversity. These include economic and demographic indicators such as GDP growth and population, as well as environmental and urban characteristics like road area, PM2.5 concentration, green coverage, wind speed, precipitation, humidity, and temperature.
+
+## 2. Identification Strategy
 
 To replicate the analysis, we compare cities before and after HSR implementation.
 The idea is to first compare cities before and after HSR opening.
@@ -66,7 +51,7 @@ This isolates the causal effect under the parallel trends assumption.
 This means that before HSR construction, cities that eventually receive HSR should follow similar trends in bird species richness as cities that do not receive HSR.
 If this assumption holds, any change in bird biodiversity after the opening of HSR can be interpreted as the causal impact of the rail system.
 
-## 3. The econometric model
+## 3. The Econometric Model
 
 The model employed in the study is defined in the following equation:
 
@@ -105,7 +90,7 @@ Using this framework, we replicate the main finding reported in Table 5 of the s
 
 ## Step 1. Setup
 
-We start off by loading all the libraries we need to carry out our replication of the causal effect analysis.
+We start off by loading all the packages we need to carry out our replication of the causal effect analysis.
 
 ```{r,results='hide'}
 library(tidyverse)
