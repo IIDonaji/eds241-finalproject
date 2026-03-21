@@ -98,14 +98,13 @@ library(here)
 library(janitor)
 library(jtools)
 
-library(gtsummary)
-library(gt)
-
 library(fixest) # fast fixed effects
 library(scales) # plotting
+
+library(kableExtra)
 ```
 
-These packages are used for loading in and wrangling the data (`here`, `janitor`, `tidyverse`, `jtools`) creating the formatted summary table (`gtsummary`, `gt`).
+These packages are used for loading in and wrangling the data (`here`, `janitor`, `tidyverse`, `jtools`) creating the formatted summary table (`kableExtra`).
 To replicate the study and the assumption of parallel trends, we use `fixest` for the city fixed effects, and `scales` for plotting.
 
 Next, we load in the simulated dataset.
@@ -120,16 +119,11 @@ hsr_data <- read_csv(here("data", "xie2025_simulated_panel.csv")) %>%
 glimpse(hsr_data)
 ```
 
--   We convert region, latitude band, and city scale to factors because they represent categorical groupings.
--   We also replace infinite values in the HSR opening year with NA to avoid errors in later steps.
--   The `glimpse()` output helps us confirm that the dataset has the expected structure and that the variables are correctly formatted before we begin estimating the models.
+We begin by preparing the dataset to ensure that all variables are correctly formatted for analysis. Variables such as region, latitude band, and city scale are converted to factors, as they represent categorical groupings rather than continuous values. This step is important for both accurate modeling and proper interpretation of results. We also address data quality issues by replacing any infinite values in the HSR opening year variable with missing values (NA). This prevents errors in later steps and ensures that the dataset can be processed reliably during model estimation. Finally, we use the `glimpse()` function to inspect the structure of the dataset. This allows us to verify that variables have the expected types and formats, providing a quick quality check before proceeding with the analysis.
 
 ## Step 2. Recreate Table 5
 
-This section replicates Table 5 from the study by estimating a series of fixed‑effects regressions that progressively add control variables.
-Each model uses city and year fixed effects to account for unobserved characteristics that are constant within cities or common across years.
-The key variable of interest is `hsr`, which indicates whether a city has an operational high‑speed rail line in a given year.
-By comparing the coefficient on hsr across models, we can see how sensitive the estimated effect is to the inclusion of additional controls.
+This section replicates Table 5 from the study by estimating a series of fixed‑effects regressions that progressively add control variables. Each model uses city and year fixed effects to account for unobserved characteristics that are constant within cities or common across years. The key variable of interest is `hsr`, which indicates whether a city has an operational high‑speed rail line in a given year. By comparing the coefficient on hsr across models, we can see how sensitive the estimated effect is to the inclusion of additional controls.
 
 ```{r}
 # Column 1: Economic controls
@@ -173,31 +167,50 @@ m5 <- feols(
 )
 ```
 
--   Model 1 includes only economic controls.
--   Models 2 to 5 add demographic, infrastructure, environmental, and weather control variables.
--   This approach mirrors the original study’s strategy for testing robustness.
+Model 1 includes only economic control variables, providing a baseline specification for the analysis. Models 2 through 5 progressively incorporate additional sets of controls, including demographic, infrastructure, environmental, and weather variables. This stepwise approach allows us to assess how sensitive the estimated effect of HSR is to the inclusion of different factors, and closely mirrors the original study’s strategy for testing robustness across model specifications.
 
 ## Step 3. Results table
 
 ```{r}
-etable(m1, m2, m3, m4, m5,
-       keep = "hsr",
-       headers = c("Economic", "+ Demographic", "+ Infrastructure", 
-                   "+ Environmental", "+ Weather"),
-       digits = 4,
-       fitstat = c("n", "r2"))
+results_tab <- etable(
+  m1, m2, m3, m4, m5,
+  keep = "hsr",
+  headers = c("Economic", "+ Demographic", "+ Infrastructure", 
+              "+ Environmental", "+ Weather"),
+  digits = 4,
+  fitstat = c("n", "r2"),
+  tex = FALSE
+)
+
+# Format with kableExtra
+results_tab %>%
+  kbl(
+    caption = "Replication of Table 5: Effect of HSR on Bird Species Richness",
+    align = "c"
+  ) %>%
+  kable_styling(
+    full_width = FALSE,
+    position = "center",
+    bootstrap_options = c("striped", "hover", "condensed")
+  ) %>%
+  add_header_above(c(" " = 1, "Model Specifications" = 5)) %>%
+  footnote(
+    general = "All models include city and year fixed effects. Standard errors are clustered at the city level.",
+    general_title = "Note:"
+  )
 ```
 
--   The `etable()` function consolidates all five regression models into a single formatted table that resembles the layout of Table 5 in the original study.
--   We restrict the output to the `hsr` coefficient because it is the main parameter of interest.
--   include the number of observations and R‑squared values to help interpret model fit.
--   This table serves as the core replication result for the study’s main causal claim.
--   The coefficient on `hsr` remains negative across all model specifications, and are statistically significant.
--   The core finding of the original study that HSR openings are associated with declines in urban avian biodiversity is supported in the simulated dataset.
--   All five models include city and year fixed effects.
--   The identification strategy is comparing within‑city changes in biodiversity before and after HSR openings relative to cities that haven’t yet received HSR.
--   The `hsr` coefficient stays negative and statistically significant (−0.015 to −0.016) even as we add economic, demographic, infrastructure, environmental, and weather controls.
--   Interpretation: This finding supports the idea that the parallel trends assumption is reasonable in the simulated dataset because if important omitted variables were biasing the estimates, we would see the coefficient shift more noticeably as controls are added. Conclusion: The results point to a negative association between HSR operation and annual avian species increment.
+We present a formatted regression table that mirrors the layout of Table 5 in the original study. The table focuses on the coefficient of interest, HSR (high-speed rail), while also reporting the number of observations and R² values to provide context on model fit. By restricting the output to the HSR coefficient, we highlight the main parameter relevant to the study’s causal question.
+
+Across all five model specifications, the coefficient on HSR remains negative and statistically significant. For example, in Model 1, the estimated coefficient is −0.0153 (p < 0.01), indicating that the introduction of HSR is associated with a decrease of approximately 0.015 in the annual increment of bird species richness within a city. This effect remains remarkably stable as additional controls are introduced, ranging from −0.0151 to −0.0165 across all models.
+
+Each model includes both city and year fixed effects, which play a crucial role in the identification strategy. City fixed effects control for time-invariant differences across cities, such as geography, baseline biodiversity, or long-term development patterns. Year fixed effects account for shocks common to all cities in a given year, such as national policies or broader environmental trends. Together, these fixed effects ensure that the estimated HSR coefficient reflects within-city changes over time, rather than differences across cities.
+
+The identification strategy therefore compares how bird species richness changes within a given city before and after HSR implementation, relative to cities that have not yet received HSR. This difference-in-differences framework isolates the effect of HSR under the assumption that, in the absence of treatment, treated and untreated cities would have followed similar trends.
+
+Importantly, the stability of the HSR coefficient across increasingly rich model specifications provides evidence of robustness. As economic, demographic, infrastructure, environmental, and weather controls are added, the estimated effect does not meaningfully change. If omitted variables were strongly biasing the results, we would expect the coefficient to shift substantially with the inclusion of these controls. Instead, the consistency of the estimates supports the credibility of the identification strategy and suggests that the parallel trends assumption is reasonable in this simulated setting.
+
+Overall, the results align with the original study’s main finding: the expansion of high-speed rail is associated with a decline in urban avian biodiversity. Specifically, HSR operation appears to reduce the annual increment in bird species richness, pointing to a negative relationship between infrastructure development and ecological outcomes in urban environments.
 
 ## Step 4. Effect Size for Column 5
 
@@ -207,13 +220,11 @@ effect_size <- coef(m5)["hsr"] / sd_outcome
 
 cat("Effect size (col 5):", round(abs(effect_size) * 100, 1), "% of 1 SD\n")
 ```
+### Interpretation
 
--   In our final step, we need to interpret the magnitude of the estimated effect.
--   To do this, we calculate how large the HSR coefficient from Model 5 is relative to the standard deviation of the outcome variable.
--   Calculating effect size helps understand whether the estimated change in avian species increment is meaningful.
--   The coefficient interpreted as a percentage of one standard deviation provides a more intuitive sense of scale.
--   The standardized effect size is approximately 16.6% of one standard deviation
--   This indicates the estimated reduction in avian species increment is meaningful in practical terms.
+In the final step of the analysis, we interpret the magnitude of the estimated effect to assess its practical significance. To do this, we compare the HSR coefficient from Model 5 to the standard deviation of the outcome variable. This standardization allows us to evaluate how large the estimated effect is relative to the natural variability in bird species richness.
+
+Expressing the coefficient as a percentage of one standard deviation provides a more intuitive sense of scale. The estimated effect corresponds to approximately 16.6% of one standard deviation, indicating that the reduction in the annual increment of bird species richness associated with HSR is not only statistically significant but also meaningful in practical terms.
 
 ## Step 5: Event Study & Parallel Trends
 
